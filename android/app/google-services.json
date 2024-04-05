@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1069697299102",
+    "project_id": "rockscissorpaper-c1220",
+    "storage_bucket": "rockscissorpaper-c1220.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1069697299102:android:50dbd9ce4b44904dbb818f",
+        "android_client_info": {
+          "package_name": "com.example.frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAcFojJsJFQo-B_cn3f7TvO2RuuAXN14kE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1069697299102:android:a388d91abf83705abb818f",
+        "android_client_info": {
+          "package_name": "com.example.webrtc_frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAcFojJsJFQo-B_cn3f7TvO2RuuAXN14kE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
