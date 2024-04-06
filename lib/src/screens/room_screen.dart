@@ -3,6 +3,7 @@ import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:frontend/src/utils/shoot_type.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 const url = 'wss://api.kimhyun5u.com';
@@ -20,10 +21,14 @@ class _RoomScreenState extends State<RoomScreen> {
   late WebSocketChannel channel;
   late RTCVideoRenderer _localRenderer;
   late RTCVideoRenderer _remoteRenderer;
-
+  String id = '';
+  late ShootType _myShoot;
+  bool _onFighting = false;
+  bool _ready = false;
+  final List<String> _countDown = ['start!', '가위', '바위', '보', 'stop!'];
   MediaStream? _localStream;
   RTCPeerConnection? pc;
-
+  int _count = 0;
   @override
   void initState() {
     super.initState();
@@ -51,6 +56,7 @@ class _RoomScreenState extends State<RoomScreen> {
     super.dispose();
   }
 
+  // webrtc ----------------------------
   void leave() async {
     if (_localStream != null) {
       _localStream?.getTracks().forEach((track) {
@@ -117,11 +123,12 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void initializeSocketListeners() {
-    channel.stream.listen((data) {
+    channel.stream.listen((data) async {
       data = jsonDecode(data);
 
-      if (data["joined"] == widget.roomID) {
+      if (data["joined"] != null) {
         log(': socket--joined / $widget.roomID');
+        id = data["joined"];
         onReceiveJoined();
       }
       if (data["offer"] != null) {
@@ -135,6 +142,50 @@ class _RoomScreenState extends State<RoomScreen> {
       if (data["ice"] != null) {
         log(': socket--ice');
         onReceiveIce(data["ice"]);
+      }
+      if (_ready) {
+        if (data['fight'] == 'ready') {
+          log('fight ready');
+        }
+        if (data['fight'] == 'start') {
+          log('fight start');
+          setState(() {
+            _onFighting = true;
+          });
+
+          for (var i = 0; i < _countDown.length; i++) {
+            // count down 3, 2, 1 use future.delayed and setSTate
+            await Future.delayed(const Duration(seconds: 1), () {
+              setState(() {
+                if (_count < _countDown.length - 1) {
+                  _count++;
+                }
+              });
+            });
+          }
+
+          // send my shoot
+          channel.sink.add(jsonEncode({'shoot': _myShoot.index}));
+        }
+      }
+      if (_onFighting) {
+        if (data['result'] != null) {
+          log('result: ${data['result']}');
+          if (data['result'] == 'draw') {
+            print('draw');
+          } else {
+            if (data['winner'] == id) {
+              print('you win');
+            } else {
+              print('you lose');
+            }
+          }
+          setState(() {
+            _onFighting = false;
+            _count = 0;
+            _ready = false;
+          });
+        }
       }
     });
   }
@@ -198,6 +249,17 @@ class _RoomScreenState extends State<RoomScreen> {
     pc!.addCandidate(ice);
   }
 
+  // game ----------------------------
+  void setReady() {
+    setState(() {
+      _ready = true;
+    });
+
+    if (!_onFighting) {
+      channel.sink.add(jsonEncode({'fight': 'ready'}));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -205,22 +267,74 @@ class _RoomScreenState extends State<RoomScreen> {
         title: Text('Room ${widget.roomID}'),
       ),
       body: Center(
-          child: Row(
-        children: [
-          Expanded(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: RTCVideoView(_localRenderer),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: RTCVideoView(_localRenderer),
+                      ),
+                    ),
+                    Expanded(
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: RTCVideoView(_remoteRenderer),
+                      ),
+                    ),
+                  ],
+                ),
+                !_onFighting
+                    ? ElevatedButton(
+                        onPressed: _ready
+                            ? null
+                            : () {
+                                setReady();
+                              },
+                        child: const Text('Ready'),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          ElevatedButton(
+                            onPressed: _onFighting
+                                ? () {
+                                    _myShoot = ShootType.rock;
+                                  }
+                                : null,
+                            child: const Text('✊'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _onFighting
+                                ? () {
+                                    _myShoot = ShootType.scissors;
+                                  }
+                                : null,
+                            child: const Text('✌️'),
+                          ),
+                          ElevatedButton(
+                            onPressed: _onFighting
+                                ? () {
+                                    _myShoot = ShootType.paper;
+                                  }
+                                : null,
+                            child: const Text('🖐️'),
+                          ),
+                        ],
+                      ),
+              ],
             ),
-          ),
-          Expanded(
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: RTCVideoView(_remoteRenderer),
-            ),
-          ),
-        ],
-      )),
+            _onFighting ? Text(_countDown[_count]) : Container(),
+          ],
+        ),
+      ),
     );
   }
 }
