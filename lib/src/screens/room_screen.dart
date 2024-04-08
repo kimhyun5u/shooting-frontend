@@ -3,6 +3,7 @@ import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:frontend/src/utils/room_state.dart';
 import 'package:frontend/src/utils/shoot_type.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -23,8 +24,9 @@ class _RoomScreenState extends State<RoomScreen> {
   late RTCVideoRenderer _remoteRenderer;
   String id = '';
   late ShootType _myShoot;
-  bool _onFighting = false;
+  RoomState _roomState = RoomState.waiting;
   bool _ready = false;
+  String _gameResult = '';
   final List<String> _countDown = ['start!', '가위', '바위', '보', 'stop!'];
   MediaStream? _localStream;
   RTCPeerConnection? pc;
@@ -150,7 +152,7 @@ class _RoomScreenState extends State<RoomScreen> {
         if (data['fight'] == 'start') {
           log('fight start');
           setState(() {
-            _onFighting = true;
+            _roomState = RoomState.playing;
           });
 
           for (var i = 0; i < _countDown.length; i++) {
@@ -168,20 +170,23 @@ class _RoomScreenState extends State<RoomScreen> {
           channel.sink.add(jsonEncode({'shoot': _myShoot.index}));
         }
       }
-      if (_onFighting) {
+      if (_roomState == RoomState.playing) {
         if (data['result'] != null) {
           log('result: ${data['result']}');
           if (data['result'] == 'draw') {
             print('draw');
+            _gameResult = 'draw';
           } else {
             if (data['winner'] == id) {
               print('you win');
+              _gameResult = 'win';
             } else {
               print('you lose');
+              _gameResult = 'lose';
             }
           }
           setState(() {
-            _onFighting = false;
+            _roomState = RoomState.finished;
             _count = 0;
             _ready = false;
           });
@@ -255,7 +260,7 @@ class _RoomScreenState extends State<RoomScreen> {
       _ready = true;
     });
 
-    if (!_onFighting) {
+    if (_roomState.index == RoomState.waiting.index) {
       channel.sink.add(jsonEncode({'fight': 'ready'}));
     }
   }
@@ -290,7 +295,7 @@ class _RoomScreenState extends State<RoomScreen> {
                     ),
                   ],
                 ),
-                !_onFighting
+                _roomState == RoomState.waiting
                     ? ElevatedButton(
                         onPressed: _ready
                             ? null
@@ -304,7 +309,7 @@ class _RoomScreenState extends State<RoomScreen> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           ElevatedButton(
-                            onPressed: _onFighting
+                            onPressed: _roomState == RoomState.playing
                                 ? () {
                                     _myShoot = ShootType.rock;
                                   }
@@ -312,7 +317,7 @@ class _RoomScreenState extends State<RoomScreen> {
                             child: const Text('✊'),
                           ),
                           ElevatedButton(
-                            onPressed: _onFighting
+                            onPressed: _roomState == RoomState.playing
                                 ? () {
                                     _myShoot = ShootType.scissors;
                                   }
@@ -320,7 +325,7 @@ class _RoomScreenState extends State<RoomScreen> {
                             child: const Text('✌️'),
                           ),
                           ElevatedButton(
-                            onPressed: _onFighting
+                            onPressed: _roomState == RoomState.playing
                                 ? () {
                                     _myShoot = ShootType.paper;
                                   }
@@ -331,7 +336,32 @@ class _RoomScreenState extends State<RoomScreen> {
                       ),
               ],
             ),
-            _onFighting ? Text(_countDown[_count]) : Container(),
+            Builder(builder: (context) {
+              switch (_roomState) {
+                case RoomState.waiting:
+                  return const Text('Waiting for opponent');
+
+                case RoomState.playing:
+                  return Text(_countDown[_count]);
+
+                case RoomState.finished:
+                  return Column(
+                    children: [
+                      Text(_gameResult),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _roomState = RoomState.waiting;
+                            _gameResult = '';
+                          });
+                        },
+                        child: const Text('Play Again'),
+                      ),
+                    ],
+                  );
+              }
+              return const SizedBox(); // Return a default widget if none of the cases match.
+            }),
           ],
         ),
       ),
