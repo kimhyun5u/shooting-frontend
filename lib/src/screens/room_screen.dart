@@ -6,8 +6,11 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:frontend/src/utils/room_state.dart';
 import 'package:frontend/src/utils/shoot_type.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-const url = 'wss://api.kimhyun5u.com';
+final url = dotenv.env['FLUTTER_ENV'] == 'prod'
+    ? dotenv.env['PROD_BASE_URL']
+    : dotenv.env['DEV_BASE_URL'];
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({super.key, required this.roomID});
@@ -23,7 +26,7 @@ class _RoomScreenState extends State<RoomScreen> {
   late RTCVideoRenderer _localRenderer;
   late RTCVideoRenderer _remoteRenderer;
   String id = '';
-  late ShootType _myShoot;
+  ShootType _myShoot = ShootType.none;
   RoomState _roomState = RoomState.waiting;
   bool _ready = false;
   String _gameResult = '';
@@ -31,6 +34,7 @@ class _RoomScreenState extends State<RoomScreen> {
   MediaStream? _localStream;
   RTCPeerConnection? pc;
   int _count = 0;
+
   @override
   void initState() {
     super.initState();
@@ -120,7 +124,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void connectSocket() {
     log('연결요청!');
-    channel = WebSocketChannel.connect(Uri.parse(url));
+    channel = WebSocketChannel.connect(Uri.parse(url!));
     initializeSocketListeners();
   }
 
@@ -314,7 +318,14 @@ class _RoomScreenState extends State<RoomScreen> {
                                     _myShoot = ShootType.rock;
                                   }
                                 : null,
-                            child: const Text('✊'),
+                            child: _myShoot == ShootType.rock
+                                ? DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.grey),
+                                    ),
+                                    child: const Text('✊'),
+                                  )
+                                : const Text('✊'),
                           ),
                           ElevatedButton(
                             onPressed: _roomState == RoomState.playing
@@ -322,7 +333,14 @@ class _RoomScreenState extends State<RoomScreen> {
                                     _myShoot = ShootType.scissors;
                                   }
                                 : null,
-                            child: const Text('✌️'),
+                            child: _myShoot == ShootType.scissors
+                                ? DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.grey),
+                                    ),
+                                    child: const Text('✌️'),
+                                  )
+                                : const Text('✌️'),
                           ),
                           ElevatedButton(
                             onPressed: _roomState == RoomState.playing
@@ -330,7 +348,14 @@ class _RoomScreenState extends State<RoomScreen> {
                                     _myShoot = ShootType.paper;
                                   }
                                 : null,
-                            child: const Text('🖐️'),
+                            child: _myShoot == ShootType.paper
+                                ? DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.grey),
+                                    ),
+                                    child: const Text('🖐️'),
+                                  )
+                                : const Text('🖐️'),
                           ),
                         ],
                       ),
@@ -353,6 +378,7 @@ class _RoomScreenState extends State<RoomScreen> {
                           setState(() {
                             _roomState = RoomState.waiting;
                             _gameResult = '';
+                            _myShoot = ShootType.none;
                           });
                         },
                         child: const Text('Play Again'),
@@ -360,7 +386,6 @@ class _RoomScreenState extends State<RoomScreen> {
                     ],
                   );
               }
-              return const SizedBox(); // Return a default widget if none of the cases match.
             }),
           ],
         ),
