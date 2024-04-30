@@ -12,6 +12,25 @@ final url = dotenv.env['FLUTTER_ENV'] == 'prod'
     ? dotenv.env['PROD_BASE_URL']
     : dotenv.env['DEV_BASE_URL'];
 
+final config = {
+  "iceServers": [
+    {"urls": "stun:stun.l.google.com:19302"},
+    {
+      "urls": "turn:api.kimhyun5u.com:3478",
+      "username": "username1",
+      "credential": "key1"
+    }
+  ]
+};
+
+final sdpConstraints = {
+  'mandatory': {
+    'OfferToReceiveAudio': true,
+    'OfferToReceiveVideo': true,
+  },
+  'optional': []
+};
+
 class RoomScreen extends StatefulWidget {
   const RoomScreen({super.key, required this.roomID});
 
@@ -24,7 +43,7 @@ class RoomScreen extends StatefulWidget {
 class _RoomScreenState extends State<RoomScreen> {
   late WebSocketChannel channel;
   late RTCVideoRenderer _localRenderer;
-  late RTCVideoRenderer _remoteRenderer;
+  late Map<String, RTCVideoRenderer> _remoteRenderers = {};
   String id = '';
   ShootType _myShoot = ShootType.none;
   RoomState _roomState = RoomState.waiting;
@@ -32,7 +51,7 @@ class _RoomScreenState extends State<RoomScreen> {
   String _gameResult = '';
   final List<String> _countDown = ['start!', '가위', '바위', '보', 'stop!'];
   MediaStream? _localStream;
-  RTCPeerConnection? pc;
+  Map<String, RTCPeerConnection> pcs = {};
   int _count = 0;
 
   @override
@@ -42,9 +61,7 @@ class _RoomScreenState extends State<RoomScreen> {
       throw Exception('roomID is required');
     }
     _localRenderer = RTCVideoRenderer();
-    _remoteRenderer = RTCVideoRenderer();
     _localRenderer.initialize();
-    _remoteRenderer.initialize();
 
     connectSocket();
     joinRoom();
@@ -55,7 +72,6 @@ class _RoomScreenState extends State<RoomScreen> {
     leave();
 
     _localRenderer.dispose();
-    _remoteRenderer.dispose();
 
     channel.sink.close();
 
@@ -71,55 +87,42 @@ class _RoomScreenState extends State<RoomScreen> {
       await _localStream!.dispose();
       _localStream = null;
     }
-
-    if (pc != null) {
-      await pc!.close();
-    }
   }
 
   void joinRoom() async {
-    final config = {
-      "iceServers": [
-        {"urls": "stun:stun.l.google.com:19302"},
-        {
-          "urls": "turn:api.kimhyun5u.com:3478",
-          "username": "username1",
-          "credential": "key1"
-        }
-      ]
-    };
-
-    final sdpConstraints = {
-      'mandatory': {
-        'OfferToReceiveAudio': true,
-        'OfferToReceiveVideo': true,
-      },
-      'optional': []
-    };
-
     final mediaConstraints = {
       'audio': false,
       'video': {'facingMode': 'user'}
     };
 
     _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-    pc = await createPeerConnection(config, sdpConstraints);
 
     _localRenderer.srcObject = _localStream;
 
+    channel.sink.add(jsonEncode({'join': widget.roomID}));
+  }
+
+  Future<RTCPeerConnection> addNewPeerConnection(id) async {
+    var newPc = await createPeerConnection(config, sdpConstraints);
+    var newRemoteRenderer = RTCVideoRenderer();
+    newRemoteRenderer.initialize();
+
     _localStream!.getTracks().forEach((track) {
-      pc!.addTrack(track, _localStream!);
+      newPc.addTrack(track, _localStream!);
     });
 
-    pc!.onIceCandidate = (ice) {
+    newPc.onIceCandidate = (ice) {
       onIceGenerated(ice);
     };
 
-    pc!.onTrack = (event) {
-      _remoteRenderer.srcObject = event.streams[0];
+    newPc.onTrack = (event) {
+      newRemoteRenderer.srcObject = event.streams[0];
     };
+    _remoteRenderers[id] = newRemoteRenderer;
 
-    channel.sink.add(jsonEncode({'join': widget.roomID}));
+    pcs[id] = newPc;
+
+    return newPc;
   }
 
   void connectSocket() {
@@ -132,18 +135,22 @@ class _RoomScreenState extends State<RoomScreen> {
     channel.stream.listen((data) async {
       data = jsonDecode(data);
 
+      if (data["new"] != null) {
+        log(': socket--new / $widget.roomID');
+        await addNewPeerConnection(data["new"]);
+        onReceiveJoined(data["new"]);
+      }
       if (data["joined"] != null) {
         log(': socket--joined / $widget.roomID');
         id = data["joined"];
-        onReceiveJoined();
       }
       if (data["offer"] != null) {
         log(': listener--offer');
-        onReceiveOffer(data["offer"]);
+        onReceiveOffer(data["offer"], data["from"]);
       }
       if (data["answer"] != null) {
         log(' : socket--answer');
-        onReceiveAnswer(data["answer"]);
+        onReceiveAnswer(data["answer"], data["from"]);
       }
       if (data["ice"] != null) {
         log(': socket--ice');
@@ -199,40 +206,47 @@ class _RoomScreenState extends State<RoomScreen> {
     });
   }
 
-  void onReceiveJoined() async {
-    _sendOffer();
+  void onReceiveJoined(remoteId) async {
+    _sendOffer(remoteId);
   }
 
-  Future _sendOffer() async {
+  Future _sendOffer(remoteId) async {
     log('send offer');
 
+    RTCPeerConnection? pc = pcs[remoteId];
     RTCSessionDescription offer = await pc!.createOffer();
-    pc!.setLocalDescription(offer);
+    pc.setLocalDescription(offer);
 
     log(offer.toMap().toString());
-
-    channel.sink.add(jsonEncode({'offer': offer.toMap()}));
+    channel.sink
+        .add(jsonEncode({'offer': offer.toMap(), 'from': id, 'to': remoteId}));
   }
 
-  Future<void> onReceiveOffer(data) async {
+  Future<void> onReceiveOffer(data, remoteId) async {
+    RTCPeerConnection? pc = pcs[remoteId];
+
+    pc ??= await addNewPeerConnection(remoteId);
+
     final offer = RTCSessionDescription(data['sdp'], data['type']);
-    pc!.setRemoteDescription(offer);
+    pc.setRemoteDescription(offer);
 
-    final answer = await pc!.createAnswer();
-    pc!.setLocalDescription(answer);
+    final answer = await pc.createAnswer();
+    pc.setLocalDescription(answer);
 
-    _sendAnswer(answer);
+    _sendAnswer(answer, remoteId);
   }
 
-  Future _sendAnswer(answer) async {
+  Future _sendAnswer(answer, remoteId) async {
     log(': send answer');
-    channel.sink.add(jsonEncode({'answer': answer.toMap()}));
+    channel.sink.add(
+        jsonEncode({'answer': answer.toMap(), 'from': id, 'to': remoteId}));
     log(answer.toMap().toString());
   }
 
-  Future onReceiveAnswer(data) async {
+  Future onReceiveAnswer(data, remoteId) async {
     log('  --got answer');
     setState(() {});
+    RTCPeerConnection? pc = pcs[remoteId];
     final answer = RTCSessionDescription(data['sdp'], data['type']);
     pc!.setRemoteDescription(answer);
   }
@@ -255,7 +269,10 @@ class _RoomScreenState extends State<RoomScreen> {
       data['sdpMid'],
       data['sdpMLineIndex'],
     );
-    pc!.addCandidate(ice);
+    for (var key in pcs.keys) {
+      RTCPeerConnection? pc = pcs[key];
+      if (pc != null) pc.addCandidate(ice);
+    }
   }
 
   // game ----------------------------
@@ -292,9 +309,16 @@ class _RoomScreenState extends State<RoomScreen> {
                       ),
                     ),
                     Expanded(
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: RTCVideoView(_remoteRenderer),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: _remoteRenderers.values
+                            .map(
+                              (e) => AspectRatio(
+                                aspectRatio: 16 / 9,
+                                child: RTCVideoView(e),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ),
                   ],
