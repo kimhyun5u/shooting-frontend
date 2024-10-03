@@ -49,6 +49,7 @@ class _RoomScreenState extends State<RoomScreen> {
   RoomState _roomState = RoomState.waiting;
   bool _ready = false;
   String _gameResult = '';
+  bool _isGameOver = false;
   final List<String> _countDown = ['start!', '가위', '바위', '보', 'stop!'];
   MediaStream? _localStream;
   Map<String, RTCPeerConnection> pcs = {};
@@ -65,6 +66,13 @@ class _RoomScreenState extends State<RoomScreen> {
 
     connectSocket();
     joinRoom();
+  }
+
+  @override
+  void deactivate() {
+    super.deactivate();
+
+    leave();
   }
 
   @override
@@ -87,6 +95,8 @@ class _RoomScreenState extends State<RoomScreen> {
       await _localStream!.dispose();
       _localStream = null;
     }
+
+    channel.sink.add(jsonEncode({"leave": id}));
   }
 
   void joinRoom() async {
@@ -156,6 +166,9 @@ class _RoomScreenState extends State<RoomScreen> {
         log(': socket--ice');
         onReceiveIce(data["ice"]);
       }
+      if (data["leave"] != null) {
+        onReceiveLeave(data["from"]);
+      }
       if (_ready) {
         if (data['fight'] == 'ready') {
           log('fight ready');
@@ -187,15 +200,25 @@ class _RoomScreenState extends State<RoomScreen> {
           if (data['result'] == 'draw') {
             print('draw');
             _gameResult = 'draw';
-          } else {
+          } else if (data['result'] == 'win') {
+            print('you win');
+            _gameResult = 'win';
+          } else if (data['result'] == 'lose') {
+            print('you lose');
+            _gameResult = 'lose';
+            _isGameOver = true;
+          } else if (data['result'] == 'final_win') {
+            print('finished');
             if (data['winner'] == id) {
               print('you win');
               _gameResult = 'win';
             } else {
               print('you lose');
               _gameResult = 'lose';
+              _isGameOver = false;
             }
           }
+
           setState(() {
             _roomState = RoomState.finished;
             _count = 0;
@@ -275,6 +298,12 @@ class _RoomScreenState extends State<RoomScreen> {
     }
   }
 
+  Future onReceiveLeave(remoteId) async {
+    pcs.remove(remoteId);
+    _remoteRenderers.remove(remoteId);
+    setState(() {});
+  }
+
   // game ----------------------------
   void setReady() {
     setState(() {
@@ -300,88 +329,97 @@ class _RoomScreenState extends State<RoomScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: RTCVideoView(_localRenderer),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: RTCVideoView(_localRenderer),
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        shrinkWrap: true,
-                        children: _remoteRenderers.values
-                            .map(
-                              (e) => AspectRatio(
-                                aspectRatio: 16 / 9,
-                                child: RTCVideoView(e),
-                              ),
-                            )
-                            .toList(),
+                      Expanded(
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          shrinkWrap: true,
+                          children: _remoteRenderers.values
+                              .map(
+                                (e) => AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: RTCVideoView(e),
+                                ),
+                              )
+                              .toList(),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 _roomState == RoomState.waiting
-                    ? ElevatedButton(
-                        onPressed: _ready
-                            ? null
-                            : () {
-                                setReady();
-                              },
-                        child: const Text('Ready'),
+                    ? Expanded(
+                        child: Center(
+                          child: ElevatedButton(
+                            onPressed: _ready
+                                ? null
+                                : () {
+                                    setReady();
+                                  },
+                            child: const Text('Ready'),
+                          ),
+                        ),
                       )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          ElevatedButton(
-                            onPressed: _roomState == RoomState.playing
-                                ? () {
-                                    _myShoot = ShootType.rock;
-                                  }
-                                : null,
-                            child: _myShoot == ShootType.rock
-                                ? DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.grey),
-                                    ),
-                                    child: const Text('✊'),
-                                  )
-                                : const Text('✊'),
-                          ),
-                          ElevatedButton(
-                            onPressed: _roomState == RoomState.playing
-                                ? () {
-                                    _myShoot = ShootType.scissors;
-                                  }
-                                : null,
-                            child: _myShoot == ShootType.scissors
-                                ? DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.grey),
-                                    ),
-                                    child: const Text('✌️'),
-                                  )
-                                : const Text('✌️'),
-                          ),
-                          ElevatedButton(
-                            onPressed: _roomState == RoomState.playing
-                                ? () {
-                                    _myShoot = ShootType.paper;
-                                  }
-                                : null,
-                            child: _myShoot == ShootType.paper
-                                ? DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      border: Border.all(color: Colors.grey),
-                                    ),
-                                    child: const Text('🖐️'),
-                                  )
-                                : const Text('🖐️'),
-                          ),
-                        ],
+                    : Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            ElevatedButton(
+                              onPressed: _roomState == RoomState.playing
+                                  ? () {
+                                      _myShoot = ShootType.rock;
+                                    }
+                                  : null,
+                              child: _myShoot == ShootType.rock
+                                  ? DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey),
+                                      ),
+                                      child: const Text('✊'),
+                                    )
+                                  : const Text('✊'),
+                            ),
+                            ElevatedButton(
+                              onPressed: _roomState == RoomState.playing
+                                  ? () {
+                                      _myShoot = ShootType.scissors;
+                                    }
+                                  : null,
+                              child: _myShoot == ShootType.scissors
+                                  ? DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey),
+                                      ),
+                                      child: const Text('✌️'),
+                                    )
+                                  : const Text('✌️'),
+                            ),
+                            ElevatedButton(
+                              onPressed: _roomState == RoomState.playing
+                                  ? () {
+                                      _myShoot = ShootType.paper;
+                                    }
+                                  : null,
+                              child: _myShoot == ShootType.paper
+                                  ? DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey),
+                                      ),
+                                      child: const Text('🖐️'),
+                                    )
+                                  : const Text('🖐️'),
+                            ),
+                          ],
+                        ),
                       ),
               ],
             ),
@@ -398,13 +436,15 @@ class _RoomScreenState extends State<RoomScreen> {
                     children: [
                       Text(_gameResult),
                       ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _roomState = RoomState.waiting;
-                            _gameResult = '';
-                            _myShoot = ShootType.none;
-                          });
-                        },
+                        onPressed: _isGameOver
+                            ? null
+                            : () {
+                                setState(() {
+                                  _roomState = RoomState.waiting;
+                                  _gameResult = '';
+                                  _myShoot = ShootType.none;
+                                });
+                              },
                         child: const Text('Play Again'),
                       ),
                     ],
